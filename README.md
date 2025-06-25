@@ -15,7 +15,7 @@ https://github.com/user-attachments/assets/a45355b2-f636-4033-952f-c1c8af96463f
 
 The program, capture.demos.py, pops up a window to allow the user to  sweep out arbitrary areas of the computer screen for recording.  Do  this by pressing the "sweep out area to be captured" button.  The area  to be recorded may also be set using the on program screen coordinates  in the "selection rectangle" text boxes or by adding the selection  rectangle to the bottom of capture_demos.py.  One can start and stop  the recording as needed.
 
-This system is built on the Open Computer Vision module (cv2) and the  tkinter GUI package. Install these, after installing python3, with the following:
+This system runs under X.org and is built on the Open Computer Vision module (cv2) and the tkinter GUI package. Install these, after installing python3, with the following:
 
 1. pip3 install opencv-python
 2. sudo apt-get install python3-tk
