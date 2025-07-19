@@ -1,5 +1,5 @@
 """
-
+https://github.com/blewett/Capture-on-Screen-Demos/tree/main
 capture_demos.py: Original work Copyright (C) 2025 by Blewett
 
 MIT License
@@ -8,7 +8,7 @@ Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
 to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
+copies of the Softxware, and to permit persons to whom the Software is
 furnished to do so, subject to the following conditions:
 
 The above copyright notice and this permission notice shall be included in all
@@ -42,57 +42,29 @@ Load Pillow:
 and other words like that.
 
 """
+import threading
+import pyaudio
+import wave
 import tkinter as tk
 from tkinter import ttk
-import threading
+from tkinter import messagebox
+
 import time
+import cv2
 
 from PIL import ImageGrab
 from PIL import Image
-import cv2
 import numpy as np
-import time
 import os
+import signal
 import sys
-from collections import deque
 
-# global queues for communicating frame
-global in_queue
-global out_queue
+# globals for the sweeping selection and updating fields
+global canvas
+global select_rect
+global offset
 global sre
-global sde
-global canvas_width
-global canvas_height
-
-# FIFOqueue for communicating with thread safe queues
-class FIFOQueue:
-    def __init__(self):
-        self.queue = deque()
-
-    def enqueue(self, item):
-        self.queue.append(item)
-
-    def dequeue(self):
-        if self.is_empty():
-            return None
-
-        item = self.queue.popleft()
-        return item
-
-    def printqueue(self):
-        print(self.queue)
-
-    def peek(self):
-        if self.is_empty():
-            return None
-        return self.queue[0]
-
-    def is_empty(self):
-        return len(self.queue) == 0
-
-    def size(self):
-        return len(self.queue)
-# end FIFOqueue for communicating with thread safe queues
+global fps
 
 # rectangle class - width, height, count and flag
 class rectx:
@@ -114,6 +86,7 @@ class rectx:
         self.flag = True
 
     def addoffset(self, x, y):
+        self.normalize_rect()
         self.x1 += x
         self.x2 += x
         self.y1 += y
@@ -121,6 +94,7 @@ class rectx:
         self.calc_width()
 
     def calc_width(self):
+        self.normalize_rect()
         self.width = self.x2 - self.x1
         self.height = self.y2 - self.y1
 
@@ -170,7 +144,6 @@ class rectx:
 
 # end of rectangle class
 
-
 # offset class - x and y of the screen
 class offsetPt:
     def __init__(self, x, y):
@@ -183,18 +156,128 @@ class offsetPt:
 
 # end of offset class
 
-# globals for selecting rectangles
-global select_rect
-global offset
-global fps
-
-select_rect = rectx(0,0,0,0)
+select_rect = rectx(20,20,320,320)
 offset = offsetPt(0,0)
-fps = 16
+
+global timer_entry_field
+global frames_entry_field
+global fps_entry_field
+global timer_start_time
+
+"""
+should one want to do this in a function rather than inline
+
+def timer_task():
+    global timer_start_time
+    global timer_entry_field
+
+    elapsed = str(int(time.time() - timer_start_time))
+
+    try:
+        timer_entry_field.delete(0, "end")
+        timer_entry_field.insert(0, elapsed)
+    except:
+        pass
+"""
+
+class RepeatingTimerThread(threading.Thread):
+    def __init__(self, interval, function, *args, **kwargs):
+    #def __init__(self, interval, function):
+        super().__init__()
+        self.interval = interval
+        #self.function = function
+     
+        self.args = args
+        self.kwargs = kwargs
+     
+        self.stop_event = threading.Event()
+        self.running = False
+
+
+    def run(self):
+        # print("[timer] started...")
+        global timer_start_time
+        global timer_entry_field
+
+        self.running = True
+
+        timer_start_time = time.time()
+
+        while not self.stop_event.is_set():
+            # self.function(*self.args, **self.kwargs)
+            if self.running == False:
+                break
+
+            elapsed = str(int(time.time() - timer_start_time))
+            # print("elapsed = " + elapsed)
+            try:
+                timer_entry_field.delete(0, "end")
+                timer_entry_field.insert(0, elapsed)
+            except:
+                pass
+
+            self.stop_event.wait(self.interval)
+
+
+    def stop(self):
+        self.running = False
+        self.stop_event.set()
+
+
+class AudioRecordingThread(threading.Thread):
+    def __init__(self):
+        super().__init__()
+        self.chunk = 1024
+        self.format = pyaudio.paInt16
+        self.channels = 1
+        self.rate = 44100
+        self.frames = []
+        print()
+        print("Ignore the following messages from audio selection")
+        print()
+        self.p = pyaudio.PyAudio()
+        print()
+        print("end of ignored messages from audio selection")
+        print()
+
+        self.stream = None
+        self.running = False
+
+    def load(self, string_name):
+        self.string_name = string_name
+        self.stream = self.p.open(format=self.format,
+                                  channels=self.channels,
+                                  rate=self.rate,
+                                  input=True,
+                                  frames_per_buffer=self.chunk)
+
+    def run(self):
+        # print("[audio] Recording started...")
+        self.running = True
+
+        while self.running:
+            data = self.stream.read(self.chunk, exception_on_overflow=False)
+            self.frames.append(data)
+
+        self.stream.stop_stream()
+        self.stream.close()
+        self.p.terminate()
+
+        # Save audio to WAV
+        output_filename = "audio" + self.string_name + ".wav"
+        wf = wave.open(output_filename, 'wb')
+        wf.setnchannels(self.channels)
+        wf.setsampwidth(self.p.get_sample_size(self.format))
+        wf.setframerate(self.rate)
+        wf.writeframes(b''.join(self.frames))
+        wf.close()
+        # print(f"[audio] Recording saved to {self.output_filename}")
+
+    def stop(self):
+        self.running = False
 
 # selecting rectangles from the screen - data and code
 def start_drawing(event):
-    global canvas
     global select_rect
 
     select_rect.x1 = event.x
@@ -206,12 +289,11 @@ def draw_rectangle(event):
 
     canvas.delete("rectangle")
     canvas.create_rectangle(select_rect.x1, select_rect.y1,
-                            event.x, event.y, tags="rectangle")
+                            event.x, event.y, tags="rectangle", width=4)
 
 def end_drawing(event):
     global canvas
     global select_rect
-    global toplevel
     global sre
 
     select_rect.x2 = event.x
@@ -222,10 +304,10 @@ def end_drawing(event):
                             select_rect.x2, select_rect.y2,
                             tags="rectangle")
 
-    offset.x = canvas.winfo_rootx()
-    offset.y = canvas.winfo_rooty()
+    offset = offsetPt(canvas.winfo_rootx(), canvas.winfo_rooty())
 
     select_rect.addoffset(offset.x, offset.y)
+    select_rect.normalize_rect()
 
     sre.entry_x1.delete(0, "end")
     sre.entry_x1.insert(0, select_rect.x1)
@@ -244,9 +326,12 @@ def create_canvas(toplevel):
     global canvas
     global select_rect
 
-    toplevel.title("Select an Area and then close the window (X) -->")
+    toplevel.title("Select an Area and then close the window")
     screen_width = toplevel.winfo_screenwidth()
     screen_height = toplevel.winfo_screenheight()
+
+    canvas_width = int (round (screen_width * 0.99))
+    canvas_height = int (round (screen_height * 0.99))
 
     canvas = tk.Canvas(toplevel, width=canvas_width, height=canvas_height)
     canvas.pack()
@@ -255,6 +340,7 @@ def create_canvas(toplevel):
     canvas.bind("<B1-Motion>", draw_rectangle)
     canvas.bind("<ButtonRelease-1>", end_drawing)
 
+    # alpha has to be set after visibility
     toplevel.wait_visibility(toplevel)
     toplevel.wm_attributes('-alpha', 0.5)
 
@@ -262,215 +348,43 @@ def create_canvas(toplevel):
 
 
 class Select_video_area:
-
-    def on_toplevel_closing(self):
-        self.toplevel.destroy()
-        self.set_rectx_button.config(state=tk.NORMAL)
-
     def __init__(self, toplevel, set_rectx_button):
 
         global canvas
         global select_rect
-        global offset
-        global canvas_width
-        global canvas_height
 
         self.set_rectx_button = set_rectx_button
         self.toplevel = toplevel
 
         canvas = create_canvas(toplevel)
+        canvas.pack(expand=True)
 
-        toplevel_screen_width = toplevel.winfo_screenwidth()
-        toplevel_screen_height = toplevel.winfo_screenheight()
-        
-        x = int (round (toplevel_screen_width - canvas_width) / 2)
-        y = int (round (toplevel_screen_height - canvas_height) / 2)
+        screen_width = toplevel.winfo_screenwidth()
+        screen_height = toplevel.winfo_screenheight()
 
+        canvas_width = int (round (screen_width * 0.99))
+        canvas_height = int (round (screen_height * 0.99))
+
+        close_button = tk.Button(canvas, bg="red", text="Close",
+                                 command=self.canvas_close)
+        close_button.place(x=(canvas_width / 2), y=0)
+
+        """
+        # center if toplevel is less than full screen
+        x = int (round (screen_width - canvas_width) / 2)
+        y = int (round (screen_height - canvas_height) / 2)
         toplevel.geometry(str(canvas_width) + "x" + str(canvas_height) +
                           "+" + str(x) + "+" + str(y))
+        """
 
-        toplevel.protocol("WM_DELETE_WINDOW", self.on_toplevel_closing)
+    def canvas_close(self):
+        self.toplevel.withdraw()
+        canvas.destroy()
+        self.toplevel.destroy()
+        self.set_rectx_button.config(state=tk.NORMAL)
 
 
 # end of selecting rectangles from the screen
-
-# FPS_Video_count class - writes video captured from the screen for demos
-class FPS_Video_calc:
-
-    def __init__(self, calc_fps_button):
-
-        global fps
-
-        self.calc_fps_button = calc_fps_button
-        self.total_frames = fps * 5
-
-        # VideoWriter constructors
-        #.mp4 = codec id 2
-        #label_text = "count"
-        self.recording_filename = "countfps.avi"
-
-        #fourcc = cv2.VideoWriter_fourcc(*'I420') # .avi
-        #fourcc = cv2.VideoWriter_fourcc(*'MP4V') # .avi
-        fourcc = cv2.VideoWriter_fourcc(*'MP42') # .avi
-        #fourcc = cv2.VideoWriter_fourcc(*'AVC1') # error libx264
-        #fourcc = cv2.VideoWriter_fourcc(*'H264') # error libx264
-        #fourcc = cv2.VideoWriter_fourcc(*'WRAW') # error --- no information ---
-        #fourcc = cv2.VideoWriter_fourcc(*'MPEG') # .avi 30fps
-        #fourcc = cv2.VideoWriter_fourcc(*'MJPG') # .avi
-        #fourcc = cv2.VideoWriter_fourcc(*'XVID') # .avi
-        #fourcc = cv2.VideoWriter_fourcc(*'H265') # error 
-
-        #
-        # collect and write the video
-        #
-        self.recording_writer = cv2.VideoWriter(self.recording_filename, fourcc, fps, (select_rect.width, select_rect.height))
-        self.out_queue = FIFOQueue()
-        threading.Thread(target=self.update_fps, daemon=True).start()
-
-    # FPS_Video_count loop
-    def update_fps(self):
-
-        global sre
-        global fps
-
-        num_frames_read = 0
-        started = False
-        start = time.time()
-
-        while num_frames_read < self.total_frames:
-
-            screen = np.array(ImageGrab.grab(bbox=(select_rect.x1,
-                                                   select_rect.y1,
-                                                   select_rect.x2,
-                                                   select_rect.y2)))
-
-            if self.recording_writer and self.recording_writer.isOpened():
-                #cv_img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-                #recording_writer.write(screen)
-                cv_img = cv2.cvtColor(screen, cv2.COLOR_RGB2BGR)
-                self.recording_writer.write(cv_img)
-
-            num_frames_read +=1
-
-        self.recording_writer.release() 
-        os.unlink(self.recording_filename)
-
-        # calculate FPS
-        end = time.time()
-        # bias toward longer
-        seconds = round((end - start) + 1.5)
-        fps = round(num_frames_read / seconds) & (~1)
-
-        """
-        print("approx. running time: " + str(seconds))
-        print("approx. frames writen per second: " + str(fps))
-        print("num_frames_read = " + str(num_frames_read))
-        """
-
-        sre.entry_fps.delete(0, "end")
-        sre.entry_fps.insert(0, str(fps))
-
-        self.calc_fps_button.config(state=tk.NORMAL)
-
-# end of FPS_Video_count class
-
-
-# WriteVideo class - writes video captured from the screen for demos
-class WriteVideo:
-
-    def __init__(self, select_rect, in_queue, out_queue):
-
-        self.select_rect = select_rect
-        self.in_queue = in_queue
-        self.out_queue = out_queue
-        global fps
-
-        # VideoWriter constructors
-        #.mp4 = codec id 2
-        label_text = "test"
-        recording_filename = time.strftime(label_text +
-                                           "-%d-%m-%Y-%H-%M-%S.avi")
-
-        #fourcc = cv2.VideoWriter_fourcc(*'I420') # .avi
-        #fourcc = cv2.VideoWriter_fourcc(*'MP4V') # .avi
-        fourcc = cv2.VideoWriter_fourcc(*'MP42') # .avi
-        #fourcc = cv2.VideoWriter_fourcc(*'AVC1') # error libx264
-        #fourcc = cv2.VideoWriter_fourcc(*'H264') # error libx264
-        #fourcc = cv2.VideoWriter_fourcc(*'WRAW') # error --- no information ---
-        #fourcc = cv2.VideoWriter_fourcc(*'MPEG') # .avi 30fps
-        #fourcc = cv2.VideoWriter_fourcc(*'MJPG') # .avi
-        #fourcc = cv2.VideoWriter_fourcc(*'XVID') # .avi
-        #fourcc = cv2.VideoWriter_fourcc(*'H265') # error 
-
-        #
-        # collect and write the video
-        #
-        self.recording_writer = cv2.VideoWriter(recording_filename, fourcc, fps,
-                                           (select_rect.width, select_rect.height))
-        threading.Thread(target=self.write_video, daemon=True).start()
-
-    # writer loop
-    def write_video(self):
-        num_frames_read = 0
-        queues_count = 0
-        started = False
-        start = time.time()
-        start_time = None
-
-        loop_test = True
-        while loop_test == True:
-            self.data = self.in_queue.dequeue()
-            if self.data == "stop":
-                started = False
-                self.out_queue.enqueue("stopped")
-                loop_test = False
-                continue
-
-            if self.data == "start":
-                started = True
-                self.out_queue.enqueue("recv start")
-                start_time = time.time()
-
-            if started == False:
-                time.sleep(1)
-                continue
-
-            screen = np.array(ImageGrab.grab(bbox=(select_rect.x1,
-                                                   select_rect.y1,
-                                                   select_rect.x2,
-                                                   select_rect.y2)))
-
-            if self.recording_writer and self.recording_writer.isOpened():
-                #cv_img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-                #recording_writer.write(screen)
-                cv_img = cv2.cvtColor(screen, cv2.COLOR_RGB2BGR)
-                self.recording_writer.write(cv_img)
-
-            num_frames_read +=1
-            queues_count += 1
-            if queues_count >= 20:
-                self.out_queue.enqueue(str(num_frames_read))
-                queues_count = 0
-
-
-        self.recording_writer.release() 
-
-        # calculate FPS
-        end = time.time()
-        seconds = round(end - start_time) & (~1)
-        if seconds > 0:
-            fps = round(num_frames_read / seconds) & (~1)
-        else:
-            fps = 0
-
-        """
-        print()
-        print("approx. running time: " + str(seconds))
-        print("approx. frames writen per second: " + str(fps))
-        print("num_frames_read = " + str(num_frames_read))
-        """
-
-# end of WriteVideo class
 
 def check_select_rect():
     global select_rect
@@ -490,7 +404,7 @@ def check_select_rect():
         sre.entry_y2.insert(0, select_rect.y2)
 
 
-def test_value(new_value):
+def validate_test_value(new_value):
     if new_value == "":
         return True
 
@@ -511,7 +425,7 @@ def validate_select_entry_x1(new_value):
 
     if new_value == "":
         return True
-    if test_value(new_value) == False:
+    if validate_test_value(new_value) == False:
         return False
     select_rect.x1 = int(new_value)
     return True
@@ -521,7 +435,7 @@ def validate_select_entry_y1(new_value):
 
     if new_value == "":
         return True
-    if test_value(new_value) == False:
+    if validate_test_value(new_value) == False:
         return False
     select_rect.y1 = int(new_value)
     return True
@@ -531,7 +445,7 @@ def validate_select_entry_x2(new_value):
 
     if new_value == "":
         return True
-    if test_value(new_value) == False:
+    if validate_test_value(new_value) == False:
         return False
     select_rect.x2 = int(new_value)
     return True
@@ -541,14 +455,13 @@ def validate_select_entry_y2(new_value):
 
     if new_value == "":
         return True
-    if test_value(new_value) == False:
+    if validate_test_value(new_value) == False:
         return False
     select_rect.y2 = int(new_value)
     return True
 
 def validate_fps_entry(new_value):
     global fps
-    global sre
 
     if new_value == "":
         return True
@@ -566,9 +479,102 @@ def validate_fps_entry(new_value):
 
     return True
 
-class DataEntries():
 
+# VideoRecordingThread class - writes video captured from the screen for demos
+class VideoRecordingThread(threading.Thread):
+    def __init__(self, select_rect):
+        super().__init__()
+        global fps
+
+        self.select_rect = select_rect
+        self.running = True
+
+
+    def load(self, string_name):
+        self.string_name = string_name
+
+        check_select_rect()
+
+        recording_filename = time.strftime("video" + string_name + ".avi")
+
+        #.mp4 = codec id 2
+        #fourcc = cv2.VideoWriter_fourcc(*'I420') # .avi
+        #fourcc = cv2.VideoWriter_fourcc(*'MP4V') # .avi
+        #fourcc = cv2.VideoWriter_fourcc(*'MP42') # .avi
+        #fourcc = cv2.VideoWriter_fourcc(*'AVC1') # error libx264
+        #fourcc = cv2.VideoWriter_fourcc(*'H264') # error libx264
+        #fourcc = cv2.VideoWriter_fourcc(*'WRAW') # error --- no information ---
+        #fourcc = cv2.VideoWriter_fourcc(*'MPEG') # .avi 30fps
+        #fourcc = cv2.VideoWriter_fourcc(*'MJPG') # .avi
+        fourcc = cv2.VideoWriter_fourcc(*'XVID') # .avi
+        #fourcc = cv2.VideoWriter_fourcc(*'H265') # error 
+
+        #
+        # collect and write the video
+        #
+        self.recording_writer = cv2.VideoWriter(recording_filename, fourcc, fps,
+                                           (select_rect.width, select_rect.height))
+        frames_entry_field.delete(0, "end")
+
+    # writer loop
+    def run(self):
+        global frames_entry_field
+        global fps_entry_field
+
+        self.running = True
+        num_frames_read = 0
+        timer_start_time = time.time()
+
+        while self.running:
+            screen = np.array(ImageGrab.grab(bbox=(select_rect.x1,
+                                                   select_rect.y1,
+                                                   select_rect.x2,
+                                                   select_rect.y2)))
+
+            if self.recording_writer and self.recording_writer.isOpened():
+                #cv_img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+                #recording_writer.write(screen)
+                cv_img = cv2.cvtColor(screen, cv2.COLOR_RGB2BGR)
+                self.recording_writer.write(cv_img)
+
+            num_frames_read +=1
+
+        self.recording_writer.release() 
+
+        # calculate FPS
+        end = time.time()
+        #seconds = round(end - timer_start_time) & (~1)
+        seconds = round(end - timer_start_time)
+        fps = 0
+        if seconds > 0:
+            # fps = round(num_frames_read / seconds) & (~1)
+            fps = round(num_frames_read / seconds)
+
+        """
+        print()
+        print("approx. running time: " + str(seconds))
+        print("approx. frames writen per second: " + str(fps))
+        print("num_frames_read = " + str(num_frames_read))
+        """
+
+        frames_entry_field.delete(0, "end")
+        frames_entry_field.insert(0, str(num_frames_read))
+
+        fps_entry_field.delete(0, "end")
+        fps_entry_field.insert(0, str(fps))
+
+
+    def stop(self):
+        self.running = False
+
+# end of VideoRecordingThread class
+
+class DataEntries():
     def __init__(self, data_frame):
+
+        global timer_entry_field
+        global frames_entry_field
+        global fps_entry_field
 
         self.data_frame = data_frame
 
@@ -577,21 +583,23 @@ class DataEntries():
         self.label_time = ttk.Label(self.data_frame, text="approx. time:")
         self.label_time.grid(row=0, column=0, padx=5, pady=5, sticky='e')
         
-        self.entry_time = ttk.Entry(self.data_frame, width=10)
-        self.entry_time.grid(row=0, column=1, padx=5, pady=5, ipadx=5, sticky='w')
-        
+        self.timer_entry_field = ttk.Entry(self.data_frame, width=10)
+        self.timer_entry_field.grid(row=0, column=1, padx=5, pady=5, ipadx=5, sticky='w')
+        timer_entry_field = self.timer_entry_field        
+
         #
         # frames
         self.label_frames = ttk.Label(self.data_frame, text="frame count:")
         self.label_frames.grid(row=1, column=0, padx=5, pady=5, sticky='e')
         
-        self.entry_frames = ttk.Entry(self.data_frame, width=10)
-        self.entry_frames.grid(row=1, column=1, padx=5, pady=5, ipadx=5, sticky='w')
+        self.frames_entry_field = ttk.Entry(self.data_frame, width=10)
+        self.frames_entry_field.grid(row=1, column=1, padx=5, pady=5, ipadx=5, sticky='w')
+        frames_entry_field = self.frames_entry_field
 
 
 class SelectRectEntries():
-
     def __init__(self, frame):
+        global fps_entry_field
 
         self.frame = frame
 
@@ -601,68 +609,89 @@ class SelectRectEntries():
         validate_select_y2 = frame.register(validate_select_entry_y2)
         validate_fps = frame.register(validate_fps_entry)
 
-        ttk.Label(frame, text="selection rectangle = ").grid(row=1, column=0, sticky="e", padx=5, pady=5)
+        ttk.Label(frame, text="selection rectangle = ").grid(row=1, column=0,
+                                                             padx=5, pady=5,
+                                                             sticky="e")
 
-        i = 1
-        self.entry_x1 = ttk.Entry(frame, width=4, validate='key', validatecommand=(validate_select_x1, '%P'))
-        self.entry_x1.grid(row=1, column=i, padx=5, pady=5)
+        index = 1
+        self.entry_x1 = ttk.Entry(frame, width=4, validate='key',
+                                  validatecommand=(validate_select_x1, '%P'))
+        self.entry_x1.grid(row=1, column=index, padx=5, pady=5)
 
-        i += 1
-        self.entry_y1 = ttk.Entry(frame, width=4, validate='key', validatecommand=(validate_select_y1, '%P'))
-        self.entry_y1.grid(row=1, column=i, padx=5, pady=5)
+        index += 1
+        self.entry_y1 = ttk.Entry(frame, width=4, validate='key',
+                                  validatecommand=(validate_select_y1, '%P'))
+        self.entry_y1.grid(row=1, column=index, padx=5, pady=5)
 
-        i += 1
-        self.entry_x2 = ttk.Entry(frame, width=4, validate='key', validatecommand=(validate_select_x2, '%P'))
-        self.entry_x2.grid(row=1, column=i, padx=5, pady=5)
+        index += 1
+        self.entry_x2 = ttk.Entry(frame, width=4, validate='key',
+                                  validatecommand=(validate_select_x2, '%P'))
+        self.entry_x2.grid(row=1, column=index, padx=5, pady=5)
 
-        i += 1
-        self.entry_y2 = ttk.Entry(frame, width=4, validate='key', validatecommand=(validate_select_y2, '%P'))
-        self.entry_y2.grid(row=1, column=i, padx=5, pady=5)
-
-
-        ttk.Label(frame, text="frames per second = ").grid(row=3, column=0, sticky="e", padx=5, pady=5)
-
-        self.entry_fps = ttk.Entry(frame, width=2, validate='key', validatecommand=(validate_fps, '%P'))
-        self.entry_fps.grid(row=3, column=1)
+        index += 1
+        self.entry_y2 = ttk.Entry(frame, width=4, validate='key',
+                                  validatecommand=(validate_select_y2, '%P'))
+        self.entry_y2.grid(row=1, column=index, padx=5, pady=5)
 
 
-class App(tk.Tk):
+        ttk.Label(frame, text="frames per second = ").grid(row=3, column=0,
+                                                           padx=5, pady=5,
+                                                           sticky="e")
 
+        self.fps_entry_field = ttk.Entry(frame, width=2, validate='key',
+                                    validatecommand=(validate_fps, '%P'))
+        self.fps_entry_field.grid(row=3, column=1)
+        fps_entry_field = self.fps_entry_field
+
+
+class CaptureApp(tk.Tk):
     def __init__(self):
         super().__init__()
 
         global sre
         global sde
         global fps
-        global canvas_width
-        global canvas_height
 
         self.title("Capture on Screen Demos")
         self.running = False
 
         self.data_frame = ttk.LabelFrame(self)
+
         self.data_frame.grid(row=0, column=1, padx=5, pady=5)
         sde = DataEntries(self.data_frame)
         
-        sde.entry_time.delete(0, "end")
-        sde.entry_time.insert(0, "0")
+        sde.timer_entry_field.delete(0, "end")
+        sde.timer_entry_field.insert(0, "0")
 
-        sde.entry_frames.delete(0, "end")
-        sde.entry_frames.insert(0, "0")
+        sde.frames_entry_field.delete(0, "end")
+        sde.frames_entry_field.insert(0, "0")
 
         separator = ttk.Separator(self, orient="horizontal")
         separator.grid(row=5, columns=2, padx=55, pady=20, sticky='ew')
 
-        self.start_button = ttk.Button(self, text="Start",
-                                       command=self.start)
-        self.start_button.grid(row=7, columns=6, padx=5, pady=5)
+        self.record_frame = ttk.Frame(self)
+        self.record_frame.grid(row=6, column=1, padx=5, pady=5)
 
-        self.stop_button = ttk.Button(self, text="Stop",
-                                      command=self.stop, state=tk.DISABLED)
-        self.stop_button.grid(row=8, columns=6, padx=5, pady=5)
+        self.start_button = ttk.Button(self.record_frame, text="Start",
+                                       command=self.start_recording)
+        self.start_button.grid(row=0, columns=2, padx=5, pady=5, sticky='ew')
+
+        self.stop_button = ttk.Button(self.record_frame, text="Stop",
+                                      command=self.stop_recording,
+                                      state=tk.DISABLED)
+
+        self.stop_button.grid(row=1, columns=2, padx=5, pady=5, sticky='ew')
+
+        self.record_audio = tk.IntVar(value=0)
+        self.checkbox_record_audio = ttk.Checkbutton(self.record_frame,
+                                                     text="record audio",
+                                                     variable=self.record_audio)
+
+        self.checkbox_record_audio.grid(row=2, column=1, padx=5, pady=5,
+                                        sticky='ew')
 
         separator = ttk.Separator(self, orient="horizontal")
-        separator.grid(row=9, columns=2, padx=55, pady=20, sticky='ew')
+        separator.grid(row=10, columns=2, padx=55, pady=20, sticky='ew')
 
         frame = ttk.LabelFrame(self)
         frame.grid(row=14, column=1, padx=5, pady=5)
@@ -680,130 +709,85 @@ class App(tk.Tk):
         sre.entry_y2.delete(0, "end")
         sre.entry_y2.insert(0, str(select_rect.y2))
 
-        sre.entry_fps.delete(0, "end")
-        sre.entry_fps.insert(0, str(fps))
+        sre.fps_entry_field.delete(0, "end")
+        sre.fps_entry_field.insert(0, str(fps))
 
         self.set_rectx_button = ttk.Button(self, text='sweep out area to be captured',
                                            command=self.set_select_rect)
+
         self.set_rectx_button.grid(row=12, columns=5, padx=5, pady=5)
 
-        self.calc_fps_button = ttk.Button(self, text='calculate frames per second',
-                                         command=self.fps_calc)
-        self.calc_fps_button.grid(row=13, columns=5, padx=5, pady=5)
-
-        screen_width = self.winfo_screenwidth()
-        screen_height = self.winfo_screenheight()
-
-        canvas_width = int (round (screen_width * 0.99))
-        canvas_height = int (round (screen_height * 0.99))
-
-        self.in_queue = FIFOQueue()
-        self.out_queue = FIFOQueue()
-        self.start_time = None
-        self.sent_start = False
-        self.recved_stopped = False
+        self.video_thread = None
+        self.audio_thread = None
+        self.string_name = "some string"
 
 
-    def set_select_rect(self):
-        global select_rect
-        global fps
-        self.set_rectx_button.config(state=tk.DISABLED)
-        check_select_rect()
-        self.toplevel = tk.Toplevel(self)
-        Select_video_area(self.toplevel, self.set_rectx_button)
+    def start_recording(self):
+        if self.video_thread and self.video_thread.is_alive():
+            print("[video]", "Already recording!")
+            return
 
-    def fps_calc(self):
-        global fps
-        self.calc_fps_button.config(state=tk.DISABLED)
-        # calc_fps_button.config(state=tk.NORMAL) at the end of FPS_Video_count
-        #  which is a daemon
-        check_select_rect()
-        FPS_Video_calc(self.calc_fps_button)
+        """
+        if self.audio_thread and self.audio_thread.is_alive():
+            print("[audio]", "Already recording!")
+            return
+        """
+        #
+        # Create a timer that calls my_function every 1 second
+        #
+        #self.timer = RepeatingTimerThread(1, timer_task)
+        self.timer_thread = RepeatingTimerThread(1, None)
 
-    # app main control loop
-    def app_update_thread(self):
+        self.string_name = time.strftime("-%d-%m-%Y-%H-%M-%S")
 
-        while self.running:
-            self.data = self.out_queue.dequeue()
-            if self.data == None:
-                time.sleep(0.5)
-                continue
+        self.video_thread = VideoRecordingThread(select_rect)
+        self.video_thread.load(self.string_name)
 
-            if self.data == "stopped":
-                sde.entry_frames.delete(0, "end")
-                sde.entry_frames.insert(0, "stopped")
-                sde.entry_frames.delete(0, "end")
-                sde.entry_frames.insert(0, "stopped")
-                self.sent_start = False
-                self.recved_stopped = True
-                self.running = False
+        if (self.record_audio.get()):
+            self.audio_thread = AudioRecordingThread()
+            self.audio_thread.load(self.string_name)
 
-            running_time = round(time.time() - self.start_time, 1)
+        self.start_button.config(state='disabled')
+        self.stop_button.config(state='normal')
 
-            sde.entry_time.delete(0, "end")
-            sde.entry_time.insert(0, str(running_time))
+        self.timer_thread.start()
 
-            sde.entry_frames.delete(0, "end")
-            sde.entry_frames.insert(0, str(self.data))
+        if (self.record_audio.get()):
+            self.audio_thread.start()
+
+        self.video_thread.start()
 
 
-    def start(self):
-        if not self.running:
-            self.running = True
-            self.recved_stopped = False
-            self.start_button.config(state=tk.DISABLED)
-            self.stop_button.config(state=tk.NORMAL)
-
-            check_select_rect()
-
-            WriteVideo(select_rect, self.in_queue, self.out_queue)
-
-            time.sleep(0.5)
-            self.in_queue.enqueue("start")
-            self.start_time = time.time()
-            self.sent_start = True
-
-            threading.Thread(target=self.app_update_thread, daemon=True).start()
-
-    def stop(self):
+    def stop_recording(self):
         self.running = False
         self.start_button.config(state=tk.NORMAL)
         self.stop_button.config(state=tk.DISABLED)
-        self.in_queue.enqueue("stop")
-        self.sent_start = False
+        self.timer_thread.stop()
+        self.video_thread.stop()
+        if (self.record_audio.get()):
+            self.audio_thread.stop()
 
-        if self.recved_stopped == True:
-            sde.entry_frames.delete(0, "end")
-            sde.entry_frames.insert(0, "stopped(1)")
-            return
+    def set_select_rect(self):
+        global select_rect
 
-        self.data = self.out_queue.dequeue()
-        if self.data == "stopped" :
-            self.recved_stopped == True
-            sde.entry_frames.delete(0, "end")
-            sde.entry_frames.insert(0, "stopped(2)")
-            return
-        
-        x = 0
-        while self.recved_stopped == False:
-            time.sleep(0.5)
-            x = self.out_queue.size()
-            if x == 0:
-                continue
+        self.set_rectx_button.config(state=tk.DISABLED)
+        check_select_rect()
+        toplevel = tk.Toplevel(self)
+        # Optional: Remove window decorations
+        #toplevel.overrideredirect(True)
+        Select_video_area(toplevel, self.set_rectx_button)
 
-            self.data = self.out_queue.dequeue()
-            if self.data == "stopped" :
-                self.recved_stopped = True
-                sde.entry_frames.delete(0, "end")
-                sde.entry_frames.insert(0, "stopped")
-                break
 
+# this is useful if the user exits while the system is capturing video
+def on_closing():
+    os.kill(os.getpid(), signal.SIGTERM)
 
 if __name__ == "__main__":
 
     # set select_rect here if one needs a pre-selected area for video
-    select_rect = rectx(967, 388, 1195, 481)
-    fps = 17
+    select_rect = rectx(20, 20, 320, 320)
+    fps = 20
 
-    app = App()
+    app = CaptureApp()
+    app.protocol("WM_DELETE_WINDOW", on_closing)
     app.mainloop()
