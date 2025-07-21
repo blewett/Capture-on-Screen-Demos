@@ -27,7 +27,11 @@ This system runs under X.org and is built on the Open Computer Vision module (cv
 
 The following is a sample invocation of the system:
 
- python3 capture_demos.py
+python3 capture_demos.py
+
+ffmpeg_audio_video_linux.sh video.avi audio.wav
+
+This will produce a combined audio and video file, xvideo.mp4.
 
 I hope this helps.  You are on your own – but you already knew that.
 
