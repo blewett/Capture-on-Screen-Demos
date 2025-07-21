@@ -5,7 +5,7 @@
 
 This is a very simple system for capturing on computer screen demos.  It is entirely written in python and has a GUI interface.  All of that  can be modified it to do whatever one wants - easy.
 
-This program does, optionally, capture audio.  Capturing both video and audio is trying with python.  This program captures a WAV file if the "record audio" checkbox is selected.  There is a accompanied ffmpeg shell script that puts the audio and video file together, by matching them by length.
+This program does, optionally, capture audio.  Capturing both video and audio is trying with python.  This program captures a WAV file if the "record audio" checkbox is selected.  There is a accompanied ffmpeg shell script that puts the audio and video files together, by matching them by length.
 
 Better video demos add the audio after the demo video has been created and peiced together.  One might  use a program like "audacity" or "gnome recorder" to capture narrative  for the demo.  One can capture the narration while playing the  captured video.  The results are always a better than driving and  talking.  Add the audio recording using a program like "openshot" or  "ffmpeg".  Openshot is also good for combing multiple videos - common.
 
